@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Gallery - AI Image Generator{% endblock %}
+
+{% block content %}
+<!-- Gallery Header -->
+<section class="gallery-header">
+    <h2>Your Generated Images</h2>
+    <p>Browse through all your AI-generated masterpieces</p>
+    <div class="gallery-stats">
+        <span class="stat">
+            <i class="fas fa-images"></i>
+            {{ images|length }} Images
+        </span>
+        {% if storage_info %}
+        <span class="stat">
+            <i class="fas fa-cloud"></i>
+            {{ storage_info.storage_type }}
+            {% if storage_info.bucket_name %}
+            ({{ storage_info.bucket_name }})
+            {% endif %}
+        </span>
+        {% endif %}
+    </div>
+</section>
+
+<!-- Gallery Grid -->
+<section class="gallery-section">
+    {% if images %}
+        <div class="gallery-grid">
+            {% for image in images %}
+                <div class="gallery-item" 
+                     data-image-url="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" 
+                     data-filename="{{ image.filename }}" 
+                     data-timestamp="{{ image.created_at.strftime('%Y-%m-%d %H:%M:%S') }}" 
+                     data-prompt="{{ image.prompt|e }}">
+                    <div class="image-container">
+                        <img src="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" 
+                             alt="{{ image.filename }}" 
+                             loading="lazy">
+                        <div class="image-overlay">
+                            <button class="view-btn">
+                                <i class="fas fa-eye"></i>
+                                View
+                            </button>
+                            <button class="download-btn" data-download-url="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" data-download-filename="{{ image.filename }}">
+                                <i class="fas fa-download"></i>
+                                Download
+                            </button>
+                        </div>
+                    </div>
+                    <div class="image-info">
+                        <span class="image-prompt">{{ image.prompt[:50] }}...</span>
+                        <span class="image-date">{{ image.created_at.strftime('%b %d, %Y') }}</span>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-gallery">
+            <i class="fas fa-image"></i>
+            <h3>No images yet</h3>
+            <p>Start generating some amazing AI images!</p>
+            <a href="{{ url_for('generate') }}" class="generate-link">
+                <i class="fas fa-magic"></i>
+                Generate Your First Image
+            </a>
+        </div>
+    {% endif %}
+</section>
+
+<!-- Image Modal -->
+<div id="imageModal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-content-wrapper">
+            <button class="modal-close" onclick="closeImageModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="modal-image-wrapper">
+                <img id="modalImage" src="" alt="">
+            </div>
+            <div class="modal-info">
+                <h3 id="modalTitle"></h3>
+                <p id="modalPrompt" class="modal-prompt"></p>
+                <p id="modalDate" class="modal-date"></p>
+                <button class="modal-download-btn" onclick="downloadModalImage()">
+                    <i class="fas fa-download"></i>
+                    Download Image
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/gallery.js') }}"></script>
+{% endblock %}
