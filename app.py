@@ -28,15 +28,12 @@ login_manager.login_message = 'Please log in to access this page.'
 # Ensure media folder exists
 os.makedirs(Config.MEDIA_FOLDER, exist_ok=True)
 
-# Initialize AWS clients
+# Initialize S3 client
 try:
-    if Config.USE_IAM_ROLE:
-        s3_client = boto3.client('s3', region_name=Config.AWS_REGION)
-    else:
-        s3_client = boto3.client('s3', region_name=Config.AWS_REGION)
-    print(f"AWS clients initialized successfully")
+    s3_client = boto3.client('s3', region_name=Config.AWS_REGION)
+    print("✅ AWS S3 client initialized successfully")
 except Exception as e:
-    print(f"Error initializing AWS clients: {str(e)}")
+    print(f"❌ Error initializing S3 client: {e}")
     s3_client = None
 
 
@@ -44,13 +41,11 @@ except Exception as e:
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
 # ==================== Helper Functions ====================
 
 def upload_to_s3(file_data, filename, content_type='image/png'):
-    """Upload file to S3"""
-    if not s3_client or not Config.S3_BUCKET_NAME:
-        return None, None
-
+    """Upload file to S3 and return direct URL."""
     try:
         s3_key = f"images/{filename}"
         s3_client.put_object(
@@ -59,55 +54,51 @@ def upload_to_s3(file_data, filename, content_type='image/png'):
             Body=file_data,
             ContentType=content_type
         )
-        print(f"Image uploaded to S3: {s3_key}")
-        # Return S3 key and direct URL
-        return s3_key, f"https://{Config.S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{s3_key}"
+        s3_url = f"https://{Config.S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{s3_key}"
+        print(f"✅ Uploaded to S3: {s3_url}")
+        return s3_key, s3_url
     except Exception as e:
-        print(f"Error uploading to S3: {str(e)}")
+        print(f"❌ S3 upload error: {e}")
         return None, None
 
 
 def save_image_from_url(image_url, filename):
-    """Download and save image"""
+    """Download image from API and upload to S3."""
     try:
         response = requests.get(image_url)
         if response.status_code == 200:
             if Config.USE_S3:
                 s3_key, s3_url = upload_to_s3(response.content, filename)
-                if s3_key:
-                    return s3_key, s3_url
-
-            # Fallback to local storage
-            filepath = os.path.join(Config.MEDIA_FOLDER, filename)
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            return filename, f'/media/{filename}'
+                return s3_key, s3_url
+            else:
+                # Local fallback
+                filepath = os.path.join(Config.MEDIA_FOLDER, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                return filename, f"/media/{filename}"
         return None, None
     except Exception as e:
-        print(f"Error saving image: {str(e)}")
+        print(f"❌ Error saving image from URL: {e}")
         return None, None
 
 
 def save_base64_image(base64_data, filename):
-    """Save base64 encoded image"""
+    """Save base64 image to S3 or local storage."""
     try:
         if base64_data.startswith('data:image'):
             base64_data = base64_data.split(',')[1]
-
         image_data = base64.b64decode(base64_data)
 
         if Config.USE_S3:
             s3_key, s3_url = upload_to_s3(image_data, filename)
-            if s3_key:
-                return s3_key, s3_url
-
-        # Fallback to local storage
-        filepath = os.path.join(Config.MEDIA_FOLDER, filename)
-        with open(filepath, 'wb') as f:
-            f.write(image_data)
-        return filename, f'/media/{filename}'
+            return s3_key, s3_url
+        else:
+            filepath = os.path.join(Config.MEDIA_FOLDER, filename)
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+            return filename, f"/media/{filename}"
     except Exception as e:
-        print(f"Error saving base64 image: {str(e)}")
+        print(f"❌ Error saving base64 image: {e}")
         return None, None
 
 
@@ -123,38 +114,22 @@ def get_available_models():
             return response.json()
         return {"data": []}
     except Exception as e:
-        print(f"Error fetching models: {str(e)}")
+        print(f"❌ Error fetching models: {e}")
         return {"data": []}
 
 
 def generate_image(prompt, model_id, size="1024x1024", quality="standard", n=1):
-    """Generate image using Infip API"""
+    """Generate image using external API."""
     try:
         headers = {
             "Authorization": f"Bearer {Config.API_KEY}",
             "Content-Type": "application/json"
         }
-
-        payload = {
-            "model": model_id,
-            "prompt": prompt,
-            "size": size,
-            "quality": quality,
-            "n": n
-        }
-
-        response = requests.post(
-            f"{Config.API_BASE_URL}/v1/images/generations",
-            headers=headers,
-            json=payload
-        )
-
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return None
+        payload = {"model": model_id, "prompt": prompt, "size": size, "quality": quality, "n": n}
+        response = requests.post(f"{Config.API_BASE_URL}/v1/images/generations", headers=headers, json=payload)
+        return response.json() if response.status_code == 200 else None
     except Exception as e:
-        print(f"Error generating image: {str(e)}")
+        print(f"❌ Error generating image: {e}")
         return None
 
 
@@ -162,9 +137,7 @@ def generate_image(prompt, model_id, size="1024x1024", quality="standard", n=1):
 
 @app.route('/')
 def index():
-    if current_user.is_authenticated:
-        return redirect(url_for('generate'))
-    return redirect(url_for('login'))
+    return redirect(url_for('generate') if current_user.is_authenticated else url_for('login'))
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -213,7 +186,7 @@ def register():
 
         except Exception as e:
             db.session.rollback()
-            print(f"Registration error: {str(e)}")
+            print(f"❌ Registration error: {e}")
             flash('An error occurred. Please try again.', 'error')
 
     return render_template('register.html')
@@ -223,21 +196,18 @@ def register():
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-
+    
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-
         user = User.query.filter_by(username=username).first()
-
+        
         if user and bcrypt.check_password_hash(user.password_hash, password):
             login_user(user)
             flash('Login successful!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('dashboard'))
-        else:
-            flash('Invalid username or password', 'error')
-
+            return redirect(url_for('dashboard'))
+        flash('Invalid username or password', 'error')
+    
     return render_template('login.html')
 
 
@@ -268,16 +238,31 @@ def generate():
 def gallery():
     try:
         images = Image.query.filter_by(user_id=current_user.id).order_by(Image.created_at.desc()).all()
-
+        image_items = []
+        
+        for img in images:
+            # Always prefer S3 URL if available
+            if Config.USE_S3 and img.s3_key:
+                image_url = f"https://{Config.S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{img.s3_key}"
+            else:
+                image_url = url_for('serve_media', filename=img.filename)
+            
+            image_items.append({
+                'id': img.id,
+                'prompt': img.prompt,
+                'url': image_url,
+                'created_at': img.created_at.strftime('%Y-%m-%d %H:%M:%S') if img.created_at else ''
+            })
+        
         storage_info = {
             'storage_type': 'AWS S3' if Config.USE_S3 else 'Local Storage',
             'bucket_name': Config.S3_BUCKET_NAME if Config.USE_S3 else None,
-            'total_images': len(images)
+            'total_images': len(image_items)
         }
-
-        return render_template('gallery.html', images=images, storage_info=storage_info)
+        
+        return render_template('gallery.html', images=image_items, storage_info=storage_info)
     except Exception as e:
-        print(f"Gallery error: {str(e)}")
+        print(f"❌ Gallery error: {e}")
         return render_template('gallery.html', images=[], storage_info={}, error=str(e))
 
 
@@ -323,15 +308,12 @@ def api_generate():
         quality = data.get('quality', 'standard')
 
         if not prompt:
-            return jsonify({'error': 'Prompt is required'}), 400
+            return jsonify({'error': 'Prompt required'}), 400
 
-        # Generate image
         result = generate_image(prompt, model_id, size, quality)
-
         if not result:
-            return jsonify({'error': 'Failed to generate image'}), 500
+            return jsonify({'error': 'Image generation failed'}), 500
 
-        # Save images
         saved_images = []
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -351,12 +333,16 @@ def api_generate():
                     prompt=prompt,
                     model=model_id,
                     filename=filename,
-                    s3_key=s3_key if Config.USE_S3 else None,
+                    s3_key=s3_key,
                     size=size,
                     quality=quality
                 )
                 db.session.add(new_image)
-                saved_images.append(new_image.to_dict())
+                saved_images.append({
+                    'prompt': prompt,
+                    'url': image_url,
+                    'model': model_id
+                })
 
         stats = UserStats.query.filter_by(user_id=current_user.id).first()
         if stats:
@@ -371,21 +357,14 @@ def api_generate():
                 last_generation=datetime.utcnow()
             )
             db.session.add(stats)
-
+        
         db.session.commit()
 
-        return jsonify({
-            'success': True,
-            'images': saved_images,
-            'message': f'Generated {len(saved_images)} image(s) successfully!'
-        })
-
+        return jsonify({'success': True, 'images': saved_images})
     except Exception as e:
         db.session.rollback()
-        print(f"Generation error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        print(f"❌ /api/generate error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/user/stats')
@@ -424,7 +403,7 @@ def api_storage_info():
 @app.cli.command('init-db')
 def init_db():
     db.create_all()
-    print('Database tables created successfully!')
+    print('✅ Database tables created successfully!')
 
 
 @app.cli.command('create-admin')
@@ -448,7 +427,7 @@ def create_admin():
     db.session.add(user_stats)
     db.session.commit()
 
-    print(f'Admin user {username} created successfully!')
+    print(f'✅ Admin user {username} created successfully!')
 
 
 if __name__ == '__main__':

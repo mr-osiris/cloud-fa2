@@ -3,7 +3,6 @@
 {% block title %}Gallery - AI Image Generator{% endblock %}
 
 {% block content %}
-<!-- Gallery Header -->
 <section class="gallery-header">
     <h2>Your Generated Images</h2>
     <p>Browse through all your AI-generated masterpieces</p>
@@ -24,34 +23,38 @@
     </div>
 </section>
 
-<!-- Gallery Grid -->
 <section class="gallery-section">
     {% if images %}
         <div class="gallery-grid">
             {% for image in images %}
-                <div class="gallery-item" 
-                     data-image-url="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" 
-                     data-filename="{{ image.filename }}" 
-                     data-timestamp="{{ image.created_at.strftime('%Y-%m-%d %H:%M:%S') }}" 
+                <div class="gallery-item"
+                     data-image-url="{{ image.url }}"
+                     data-filename="{{ image.filename }}"
+                     data-timestamp="{{ image.created_at }}"
                      data-prompt="{{ image.prompt|e }}">
                     <div class="image-container">
-                        <img src="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" 
-                             alt="{{ image.filename }}" 
-                             loading="lazy">
+                        <img src="{{ image.url }}" alt="{{ image.prompt }}" loading="lazy" onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/placeholder.png') }}';">
                         <div class="image-overlay">
-                            <button class="view-btn">
-                                <i class="fas fa-eye"></i>
-                                View
+                            <button class="view-btn" onclick="openImageModal('{{ image.url }}', '{{ image.prompt|e }}', '{{ image.created_at }}', '{{ image.filename }}')">
+                                <i class="fas fa-eye"></i> View
                             </button>
-                            <button class="download-btn" data-download-url="{{ image.cloudfront_url or url_for('serve_media', filename=image.filename) }}" data-download-filename="{{ image.filename }}">
-                                <i class="fas fa-download"></i>
-                                Download
+                            <button class="download-btn"
+                                    data-download-url="{{ image.url }}"
+                                    data-download-filename="{{ image.filename }}"
+                                    onclick="downloadImage('{{ image.url }}', '{{ image.filename }}')">
+                                <i class="fas fa-download"></i> Download
                             </button>
                         </div>
                     </div>
                     <div class="image-info">
-                        <span class="image-prompt">{{ image.prompt[:50] }}...</span>
-                        <span class="image-date">{{ image.created_at.strftime('%b %d, %Y') }}</span>
+                        <span class="image-prompt" title="{{ image.prompt }}">
+                            {% if image.prompt|length > 50 %}
+                                {{ image.prompt[:50] }}...
+                            {% else %}
+                                {{ image.prompt }}
+                            {% endif %}
+                        </span>
+                        <span class="image-date">{{ image.created_at }}</span>
                     </div>
                 </div>
             {% endfor %}
@@ -62,16 +65,14 @@
             <h3>No images yet</h3>
             <p>Start generating some amazing AI images!</p>
             <a href="{{ url_for('generate') }}" class="generate-link">
-                <i class="fas fa-magic"></i>
-                Generate Your First Image
+                <i class="fas fa-magic"></i> Generate Your First Image
             </a>
         </div>
     {% endif %}
 </section>
 
-<!-- Image Modal -->
-<div id="imageModal" class="modal" style="display: none;">
-    <div class="modal-backdrop"></div>
+<div id="imageModal" class="modal" style="display:none;">
+    <div class="modal-backdrop" onclick="closeImageModal()"></div>
     <div class="modal-dialog">
         <div class="modal-content-wrapper">
             <button class="modal-close" onclick="closeImageModal()">
@@ -85,8 +86,7 @@
                 <p id="modalPrompt" class="modal-prompt"></p>
                 <p id="modalDate" class="modal-date"></p>
                 <button class="modal-download-btn" onclick="downloadModalImage()">
-                    <i class="fas fa-download"></i>
-                    Download Image
+                    <i class="fas fa-download"></i> Download Image
                 </button>
             </div>
         </div>
@@ -95,5 +95,78 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/gallery.js') }}"></script>
+<script>
+let currentModalImage = { url: '', filename: '' };
+
+function openImageModal(imageUrl, prompt, date, filename) {
+    const modal = document.getElementById('imageModal');
+    const modalImage = document.getElementById('modalImage');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalPrompt = document.getElementById('modalPrompt');
+    const modalDate = document.getElementById('modalDate');
+    
+    modalImage.src = imageUrl;
+    modalTitle.textContent = filename;
+    modalPrompt.textContent = prompt;
+    modalDate.textContent = `Created: ${date}`;
+    
+    currentModalImage = { url: imageUrl, filename: filename };
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeImageModal() {
+    const modal = document.getElementById('imageModal');
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function downloadImage(url, filename) {
+    fetch(url)
+        .then(response => response.blob())
+        .then(blob => {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        })
+        .catch(error => {
+            console.error('Download error:', error);
+            // Fallback: open in new tab
+            window.open(url, '_blank');
+        });
+}
+
+function downloadModalImage() {
+    downloadImage(currentModalImage.url, currentModalImage.filename);
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeImageModal();
+    }
+});
+
+// View button handlers
+document.addEventListener('DOMContentLoaded', function() {
+    const viewButtons = document.querySelectorAll('.view-btn');
+    viewButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const galleryItem = this.closest('.gallery-item');
+            const imageUrl = galleryItem.dataset.imageUrl;
+            const prompt = galleryItem.dataset.prompt;
+            const timestamp = galleryItem.dataset.timestamp;
+            const filename = galleryItem.dataset.filename;
+            
+            openImageModal(imageUrl, prompt, timestamp, filename);
+        });
+    });
+});
+</script>
 {% endblock %}

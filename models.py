@@ -1,8 +1,10 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
+from config import Config  # <-- make sure Config is imported to access S3 settings
 
 db = SQLAlchemy()
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -21,6 +23,7 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f'<User {self.username}>'
 
+
 class Image(db.Model):
     __tablename__ = 'images'
     
@@ -31,7 +34,7 @@ class Image(db.Model):
     filename = db.Column(db.String(255), nullable=False)
     s3_key = db.Column(db.String(500))
     thumbnail_key = db.Column(db.String(500))
-    cloudfront_url = db.Column(db.String(500))
+    cloudfront_url = db.Column(db.String(500))  # optional legacy field
     size = db.Column(db.String(20))
     quality = db.Column(db.String(20))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
@@ -40,20 +43,28 @@ class Image(db.Model):
         return f'<Image {self.filename}>'
     
     def to_dict(self):
-        """Convert image object to dictionary with safe date handling"""
-        # Use current time if created_at is None (shouldn't happen, but safety first)
-        if self.created_at:
-            created_at_str = self.created_at.strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            created_at_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        
+        """Convert image object to dictionary with S3 URL priority"""
+        created_at_str = (
+            self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            if self.created_at else datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        )
+
+        # ✅ Direct S3 URL (no CloudFront, no /media)
+        s3_url = (
+            f"https://{Config.S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{self.s3_key}"
+            if self.s3_key else None
+        )
+
         return {
             'id': self.id,
             'prompt': self.prompt,
             'model': self.model,
             'filename': self.filename,
-            'url': self.cloudfront_url or f'/media/{self.filename}',
-            'thumbnail': self.thumbnail_key if self.thumbnail_key else None,
+            'url': s3_url or f'/media/{self.filename}',  # fallback if missing
+            'thumbnail': (
+                f"https://{Config.S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{self.thumbnail_key}"
+                if self.thumbnail_key else None
+            ),
             'size': self.size if self.size else '1024x1024',
             'quality': self.quality if self.quality else 'standard',
             'created_at': created_at_str
