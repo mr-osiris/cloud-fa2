@@ -4,4 +4,4 @@ A stunning Flask web application that generates AI images using the Infip Pro AP
 
 For collecting API key: Go to chat.infip.pro and collect your API key.
 
-this was my clg project
+this was my clg light weight project
