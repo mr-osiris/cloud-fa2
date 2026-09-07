@@ -6,4 +6,3 @@ For collecting API key: Go to chat.infip.pro and collect your API key.
 
 this was my clg light weight project
 
-deine sie meine faur
